@@ -1,1101 +1,548 @@
-# ⚡ KubePulse: Kubernetes Cluster Health Checker & Healing
-
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-RKE2-blue?logo=kubernetes&style=flat-square)](https://kubernetes.io)
-[![Observability](https://img.shields.io/badge/Observability-Prometheus%20%26%20Grafana-orange?logo=prometheus&style=flat-square)](https://prometheus.io)
-[![Status](https://img.shields.io/badge/Status-Active%20Monitoring-success?style=flat-square)](#)
-
-A production-grade, Kubernetes-native observability and health monitoring platform designed to provide real-time cluster visibility, proactive health checks, automated healing alerts, and AI-assisted incident response.
-
-
-### Formal Architecture: Kubernetes Observability & Health Monitoring Platform
-
-
-
-#### One-Line Architecture Summary
-
-
-KubePulse is a Kubernetes-native observability and health management platform that connects a web dashboard to RKE2/Kubernetes, Prometheus, Grafana, Alertmanager, and notification channels to provide real-time cluster visibility, health checks, alerting, and AI-assisted incident response.
-
-
-### 1. High-Level Goal
-
-
-The project is a central monitoring and operations dashboard for Kubernetes-based applications.
-
-It should allow users to:
-
-
-- View real-time status of Kubernetes objects.
-- Monitor application and infrastructure health.
-- Collect metrics using Prometheus.
-- Visualize metrics using Grafana.
-- Receive alerts via email, Slack, and AI-assisted summaries.
-- Track cluster events, pod failures, restarts, resource usage, and deployment health.
-- Optionally take actions such as restart pod, scale deployment, or view logs.
-
-
-### 2. Proposed Architecture Diagram
-
-
-
-![Diagram](diagrams/image2.svg)
-
-
-
-### 3. Core Components
-
-
-
-#### 3.1 User Interface
-
-
-The User Interface is the main dashboard where users interact with the platform.
-
-It should show:
-
-
-- Cluster overview
-- Node health
-- Pod status
-- Deployment status
-- Namespace-wise resource usage
-- Application health
-- Recent Kubernetes events
-- Active alerts
-- Historical alert timeline
-- Grafana embedded dashboards
-- Real-time object status
-
-Recommended frontend stack:
-
-
-- React / Next.js
-- TailwindCSS
-- WebSocket or Server-Sent Events for live updates
-- Grafana iframe embedding or API integration
-
-The UI should not directly talk to Kubernetes or Prometheus. It should communicate only with the backend API.
-
-
-#### 3.2 Backend API Gateway
-
-
-The Backend API acts as the control center of the platform.
-
-It receives requests from the UI and routes them to the proper internal service.
-
-Example API responsibilities:
-
-
-- GET  /api/clusters
-- GET  /api/namespaces
-- GET  /api/pods
-- GET  /api/deployments
-- GET  /api/metrics/cpu
-- GET  /api/metrics/memory
-- GET  /api/alerts
-- POST /api/actions/restart-pod
-- POST /api/actions/scale-deployment
-
-Recommended backend stack:
-
-
-- Python FastAPI
-- Node.js NestJS
-- Go Fiber / Gin
-
-Since you are already familiar with Python, FastAPI would be a strong choice.
-
-
-#### 3.3 Authentication and RBAC Layer
-
-
-This layer controls who can access what.
-
-Example user roles:
-
-
-| Role | Permissions |
-| --- | --- |
-| Admin | Full access, cluster actions, alert configuration |
-| DevOps | View cluster, restart workloads, manage alerts |
-| Developer | View application namespace and logs |
-| Viewer | Read-only access |
-
-Authentication options:
-
-
-- LDAP
-- OAuth2 / OIDC
-- Google Login
-- GitHub Login
-- Keycloak
-
-Since you previously worked with LDAP authentication, this platform can support LDAP login.
-
-Flow:
-
-
-![Diagram](diagrams/image4.svg)
-
-
-
-### 4. Kubernetes / RKE2 Layer
-
-
-
-#### 4.1 RKE2 Kubernetes Cluster
-
-
-RKE2 is the Kubernetes distribution running your workloads.
-
-This layer contains:
-
-
-- Control Plane
-- Worker Nodes
-- Pods
-- Deployments
-- Services
-- Ingress
-- ConfigMaps
-- Secrets
-- Namespaces
-- Persistent Volumes
-
-The platform should communicate with Kubernetes using the Kubernetes API.
-
-The backend service should run inside the cluster and use a Kubernetes ServiceAccount with limited RBAC permissions.
-
-Example:
-
-```text
-Dashboard Backend Pod
-        |
-        | in-cluster ServiceAccount
-        v
-Kubernetes API Server
-```
-
-#### 4.2 Kubernetes Integration Service
-
-
-This service reads Kubernetes objects and sends the data to the UI.
-
-It should collect:
-
-
-- Nodes
-- Namespaces
-- Pods
-- Deployments
-- ReplicaSets
-- StatefulSets
-- DaemonSets
-- Services
-- Ingresses
-- Events
-- ConfigMaps
-- Secrets metadata only
-- PersistentVolumes
-- PersistentVolumeClaims
-
-Example object status:
-
-```json
-{
-  "namespace": "production",
-  "deployment": "payment-service",
-  "desiredReplicas": 3,
-  "availableReplicas": 2,
-  "status": "Degraded",
-  "reason": "One pod is in CrashLoopBackOff"
-}
-```
-This service should also support controlled actions:
-
-
-- Restart pod
-- Scale deployment
-- Rollout restart deployment
-- View pod logs
-- View events
-- Describe object
-
-Actions must be protected by RBAC and audit logging.
-
-
-### 5. Health Checker Service
-
-
-The Health Checker is one of the most important custom components.
-
-Its job is to continuously check whether the cluster and applications are healthy.
-
-
-#### 5.1 What It Checks
-
-
-Kubernetes Health
-
-
-- Node Ready / NotReady
-- Pod Running / Pending / Failed
-- CrashLoopBackOff
-- ImagePullBackOff
-- Deployment replica mismatch
-- High restart count
-- PVC pending
-- Ingress unavailable
-- Service endpoint missing
-
-Application Health
-
-
-- HTTP health endpoint
-- Readiness endpoint
-- Liveness endpoint
-- Response time
-- Error rate
-- Dependency status
-- Database connection status
-
-Example:
-
-GET http://payment-service.production.svc.cluster.local/health
-
-Response:
-
-```json
-{
-  "status": "UP",
-  "database": "UP",
-  "redis": "UP",
-  "version": "1.4.2"
-}
-```
-Version Check
-
-Your sketch mentions “version” near Prometheus and Grafana. This can be formalized as a Version Inventory Module.
-
-It can track:
-
-
-- Application version
-- Docker image tag
-- Helm chart version
-- Kubernetes version
-- RKE2 version
-- Prometheus version
-- Grafana version
-- Node OS version
-
-This is useful for release tracking and debugging.
-
-
-### 6. Prometheus Metrics Layer
-
-
-Prometheus will collect and store time-series metrics.
-
-
-#### 6.1 Prometheus Scraping Targets
-
-
-Prometheus should scrape:
-
-
-| Source | Purpose |
-| --- | --- |
-| kube-state-metrics | Kubernetes object state |
-| node-exporter | Node CPU, memory, disk, network |
-| cAdvisor / kubelet | Container-level metrics |
-| Application /metrics endpoints | Business and app metrics |
-| Blackbox exporter | External endpoint checks |
-| Custom health checker | Custom health metrics |
-
-Example application metrics:
-
-
-- http_requests_total
-- http_request_duration_seconds
-- app_errors_total
-- database_connection_status
-- queue_pending_jobs
-
-
-#### 6.2 Prometheus Data Flow
-
+# ⚡ KubePulse - Kubernetes Observability & Monitoring Platform
+
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.30+-326ce5.svg?style=flat-flat&logo=kubernetes&logoColor=white)](https://kubernetes.io)
+[![FastAPI](https://img.shields.io/badge/FastAPI-v0.111+-009688.svg?style=flat-flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Streamlit](https://img.shields.io/badge/Streamlit-v1.35+-FF4B4B.svg?style=flat-flat&logo=streamlit&logoColor=white)](https://streamlit.io)
+[![Prometheus](https://img.shields.io/badge/Prometheus-v2.52+-e6522c.svg?style=flat-flat&logo=prometheus&logoColor=white)](https://prometheus.io)
+[![Grafana](https://img.shields.io/badge/Grafana-v11.0+-F46800.svg?style=flat-flat&logo=grafana&logoColor=white)](https://grafana.com)
+[![Kind](https://img.shields.io/badge/Kind-v0.23+-326CE5.svg?style=flat-flat)](https://kind.sigs.k8s.io)
+
+**KubePulse** is a lightweight, self-contained Kubernetes monitoring and observability solution designed to run inside a local Kubernetes cluster (deployed via **Kind**). It offers real-time infrastructure visibility, pod/deployment status tracking, alert management, and automated dashboard visualization under a single consolidated web interface.
+
+---
+
+## 📖 Table of Contents
+1. [Executive Summary](#1-executive-summary)
+2. [High-Level Architecture](#2-high-level-architecture)
+3. [Request Flow](#3-request-flow)
+4. [Project Structure](#4-project-structure)
+5. [Infrastructure Configuration](#5-infrastructure-configuration)
+6. [Backend Service Deep Dive](#6-backend-service-deep-dive)
+7. [Frontend Dashboard](#7-frontend-dashboard)
+8. [Kubernetes Manifests & Security](#8-kubernetes-manifests--security)
+9. [Workload Deployments](#9-workload-deployments)
+10. [Ingress & Traffic Routing](#10-ingress--traffic-routing)
+11. [Monitoring Stack](#11-monitoring-stack)
+12. [Docker Containers](#12-docker-containers)
+13. [Deployment & Verification Workflow](#13-deployment--verification-workflow)
+14. [DevOps Concepts Demonstrated](#14-devops-concepts-demonstrated)
+
+---
+
+## 1. Executive Summary
+
+### What is KubePulse?
+KubePulse is an internal cluster observation dashboard and metrics pipeline. It queries the live state of Kubernetes workloads, monitors resource usage metrics, and displays active system alerts.
+
+It provides:
+- 📈 **Real-time cluster monitoring**: Real-time metrics from namespaces, nodes, deployments, and pods.
+- 🖥️ **Infrastructure health visibility**: Instant CPU/Memory capacity gauges per node.
+- 📦 **Pod & deployment status tracking**: Quick diagnosis of failed, pending, or crashlooping pods.
+- 🔔 **Alert management**: In-memory incident tracking powered by active webhook payloads.
+- 📊 **Grafana dashboards**: Embedded dashboard panels with no manual setup.
+- ⏱️ **Prometheus metrics collection**: Scraping configuration targets for Kubernetes system internals.
+- 🌐 **Centralized web dashboard**: A unified frontend served directly via Streamlit.
+
+### Business Problem Solved
+Modern Kubernetes clusters contain highly dynamic, moving parts:
+- **Nodes** (physical/virtual machines)
+- **Pods** (container groups)
+- **Deployments** (desired state managers)
+- **Services & Ingresses** (routing rules)
+- **System Events** (evictions, schedules, errors)
+- **Resource consumption** (CPU throttling, Out Of Memory errors)
+
+Without an integrated observability framework, administrators struggle to diagnose production incidents:
+- Which pods are in a `CrashLoopBackOff` state?
+- Are worker nodes hitting resource capacity limits?
+- Why did a deployment fail to roll out desired replicas?
+- What triggered a critical cluster event?
+
+KubePulse resolves this by aggregating and correlation metrics, Kubernetes API statistics, and alerts into a single, intuitive interface.
+
+---
+
+## 2. High-Level Architecture
+
+The cluster architecture isolates monitoring workloads inside the `kubepulse` namespace, allowing secure internal lookups while routing host traffic using the Ingress Controller.
 
 ```mermaid
 graph TD
-    subgraph "Scrape Targets"
-        KSM["kube-state-metrics"]
-        NE["node-exporter"]
-        cAdv["cAdvisor / Kubelet"]
-        App["Application /metrics"]
-        BB["Blackbox Exporter"]
-        HC["Custom Health Checker"]
+    User["👤 User / Browser"] -->|"HTTP / localhost"| Ingress["🕸️ NGINX Ingress Controller"]
+    
+    subgraph KubePulse Namespace [kubepulse Namespace]
+        Ingress -->|"/"| Frontend["💻 Frontend (Streamlit)"]
+        Ingress -->|"/api"| Backend["⚙️ Backend API (FastAPI)"]
+        Ingress -->|"/grafana"| Grafana["📊 Grafana"]
+        Ingress -->|"/prometheus"| Prometheus["🔥 Prometheus"]
+        
+        Frontend -->|"API Calls"| Backend
+        Backend -->|"Queries (kubernetes client)"| K8sAPI["☸️ Kubernetes API Server"]
+        
+        Prometheus -->|"Scrapes Metrics"| Nodes["🖥️ Cluster Nodes / Pods"]
+        Prometheus -->|"Sends Alerts"| Alertmanager["🔔 Alertmanager"]
+        Alertmanager -->|"Webhook Alerts (/api/alerts/webhook)"| Backend
     end
-
-    subgraph "Prometheus Server"
-        TSDB[("TSDB (Time Series Database)")]
-        Retrieval["Retrieval Engine"]
-        Rules["Rules Engine"]
-    end
-
-    KSM -->|Scrape HTTP| Retrieval
-    NE -->|Scrape HTTP| Retrieval
-    cAdv -->|Scrape HTTP| Retrieval
-    App -->|Scrape HTTP| Retrieval
-    BB -->|Scrape HTTP| Retrieval
-    HC -->|Scrape HTTP| Retrieval
-
-    Retrieval -->|Write Metrics| TSDB
-
-    subgraph "Clients & Destinations"
-        Grafana["Grafana Dashboards"]
-        AM["Alertmanager"]
-        Slack["Slack / Email"]
-        AI["AI Incident Assistant"]
-    end
-
-    TSDB -->|PromQL Queries| Grafana
-    Rules -->|Trigger Alerts| AM
-    AM -->|Webhooks / Notifications| Slack
-    AM -->|Alert Payload| AI
+    
+    K8sAPI -->|"Cluster Data"| Backend
+    K8sAPI -->|"Manages"| Nodes
 ```
 
-### 7. Grafana Visualization Layer
+---
 
+## 3. Request Flow
 
-Grafana should be used for advanced metric visualization.
+When a user opens `http://localhost`, the system channels requests through the following sequence:
 
-Dashboards can include:
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User/Browser
+    participant Ingress as NGINX Ingress
+    participant Frontend as Streamlit Frontend
+    participant Backend as FastAPI Backend
+    participant K8sAPI as Kubernetes API Server
 
+    User->>Ingress: Access http://localhost
+    Ingress->>Frontend: Route request to Frontend Service
+    Frontend->>User: Serve Streamlit Dashboard UI
+    Note over User, Frontend: Dashboard loads in browser
+    
+    User->>Frontend: Interact / Refresh Data
+    Frontend->>Backend: HTTP request to /api/cluster/* (e.g. summary, nodes)
+    Backend->>K8sAPI: Query cluster status (in-cluster/kubeconfig)
+    K8sAPI-->>Backend: Return JSON cluster details
+    Backend-->>Frontend: Return formatted JSON API response
+    Frontend-->>User: Render real-time charts, tables & statuses
+```
 
-- Cluster Overview
-- Node Resource Usage
-- Namespace Resource Usage
-- Pod CPU / Memory
-- Deployment Health
-- Application Latency
-- Application Error Rate
-- Ingress Traffic
-- Database Metrics
-- Alert History
-- SLO / SLA Dashboard
+1. **Browser** initiates connection to the host address `http://localhost`.
+2. **Ingress Controller** routes traffic to the internal `kubepulse-frontend` service.
+3. **Streamlit Frontend** serving code processes the load and returns the web page.
+4. **Frontend JavaScript/Python core** makes asynchronous API calls back to `/api/cluster/...` paths.
+5. **FastAPI Backend** parses the request and executes API calls.
+6. **Kubernetes API Server** authenticates the pod's service account and retrieves active cluster state.
+7. **FastAPI Backend** formats raw K8s API responses into clean JSON payloads.
+8. **Streamlit Frontend** updates dashboard panels dynamically.
 
-Grafana can be connected to:
+---
 
+## 4. Project Structure
 
-- Prometheus
-- Loki, if logs are added
-- Tempo, if distributed tracing is added
-- PostgreSQL, for custom platform data
+```text
+KubePulse
+│
+├── kind-config.yaml            # Kind cluster port-mapping configuration
+├── Project summary.md          # Project description and outcomes
+├── implementation_plan.md     # Engineering log and execution blueprints
+│
+├── backend/                    # FastAPI Backend Application
+│   ├── Dockerfile              # Containerization instructions
+│   ├── requirements.txt        # Python dependency manifest
+│   └── app/
+│       ├── main.py             # FastAPI server startup & routing paths
+│       ├── k8s_client.py       # Kubernetes API Client integrations
+│       └── alerts.py           # In-memory webhook event store
+│
+├── frontend/                   # Streamlit Dashboard Web Application
+│   ├── Dockerfile              # Multi-stage image builder
+│   ├── requirements.txt        # Streamlit requirements
+│   └── app.py                  # UI layout and metrics display scripts
+│
+└── k8s/                        # Kubernetes Deployment Manifests
+    ├── namespace.yaml          # Isolated namespace 'kubepulse'
+    ├── rbac.yaml               # Cluster Role, ServiceAccount, Bindings
+    ├── backend.yaml            # Backend API Service and Deployment
+    ├── frontend.yaml           # Streamlit Frontend Service and Deployment
+    ├── ingress.yaml            # Route definitions for local ingress
+    │
+    └── monitoring/             # Prometheus Observability Stack
+        ├── prometheus.yaml     # Scraper targets & storage resources
+        ├── grafana.yaml        # Self-configuring visualization engine
+        └── alertmanager.yaml   # Webhook configurations & routing pipelines
+```
 
-The main UI can either:
+---
 
+## 5. Infrastructure Configuration
 
-- Embed Grafana dashboards using iframe.
-- Use Grafana API.
-- Show summarized metrics directly from Prometheus.
-
-Recommended approach:
-
-
-- Use your own UI for high-level status.
-- Use Grafana for deep metric analysis.
-
-
-### 8. Alerting Architecture
-
-
-Alerts should be handled by Prometheus Alertmanager and your custom Alert Service.
-
-
-#### 8.1 Alert Flow
-
-
-
-![Diagram](diagrams/image6.svg)
-
-
-
-#### 8.2 Example Alert Rules
-
-
-Pod CrashLoopBackOff
+### `kind-config.yaml`
+Kind runs Kubernetes nodes inside Docker containers. In order to access web services from the host machine (laptop), port mappings are required.
 
 ```yaml
-alert: PodCrashLooping
-expr: increase(kube_pod_container_status_restarts_total[5m]) > 3
-for: 2m
-labels:
-  severity: critical
-annotations:
-  summary: "Pod is restarting frequently"
-  description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} restarted more than 3 times in 5 minutes."
-```
-Node Not Ready
-
-```yaml
-alert: NodeNotReady
-expr: kube_node_status_condition{condition="Ready",status="true"} == 0
-for: 5m
-labels:
-  severity: critical
-annotations:
-  summary: "Kubernetes node is not ready"
-```
-High CPU Usage
-
-```yaml
-alert: HighCPUUsage
-expr: avg(rate(container_cpu_usage_seconds_total[5m])) by (pod) > 0.8
-for: 5m
-labels:
-  severity: warning
-annotations:
-  summary: "High CPU usage detected"
+apiVersion: kind.x-k8s.io/v1alpha4
+kind: Cluster
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 80
+    listenAddress: "127.0.0.1"
+  - containerPort: 443
+    hostPort: 443
+    listenAddress: "127.0.0.1"
 ```
 
-### 9. AI-Based Incident Assistant
-
-
-Your sketch mentions something like “Slack AI”. This can be expanded into an AI Incident Explanation Service.
-
-Instead of sending raw alerts only, the system can generate helpful summaries.
-
-Example raw alert:
-
-Pod payment-service-7d9f4 is in CrashLoopBackOff.
-
-AI-enhanced alert:
-
-
-- Incident: payment-service is repeatedly crashing in production.
-- Likely causes:
-1. Recent deployment may have introduced a runtime error.
-2. Environment variable or secret may be missing.
-3. Database connection may be failing.
-- Recommended actions:
-1. Check pod logs.
-2. Compare current image version with previous release.
-3. Verify ConfigMap and Secret values.
-4. Run kubectl describe pod payment-service-7d9f4.
-
-The AI service should receive:
-
-
-- Alert payload
-- Kubernetes events
-- Pod logs
-- Deployment version
-- Recent rollout history
-- Prometheus metrics
-
-It should return:
-
-
-- Incident summary
-- Root-cause hints
-- Suggested remediation steps
-- Severity explanation
-
-
-### 10. Real-Time Dashboard
-
-
-The dashboard should show live Kubernetes and application status.
-
-
-#### 10.1 Real-Time Data Sources
-
-
-
-- Kubernetes Watch API
-- Prometheus query API
-- Health checker results
-- Alertmanager webhook events
-- Application health endpoints
-
-
-#### 10.2 Communication Method
-
-
-Use either:
-
-
-- WebSocket
-- Server-Sent Events
-- Polling fallback
-
-Recommended:
-
-
-- WebSocket for live dashboard updates.
-- Polling fallback every 30 seconds if WebSocket fails.
-
-Example flow:
-
-
-![Diagram](diagrams/image8.svg)
-
-
-
-### 11. Data Storage Design
-
-
-The system should use multiple storage layers.
-
-
-#### 11.1 PostgreSQL
-
-
-Used for platform metadata.
-
-Stores:
-
-
-- Users
-- Roles
-- Teams
-- Cluster registration
-- Alert configuration
-- Notification channels
-- Audit logs
-- Dashboard preferences
-- Incident history
-- Application metadata
-
-Example tables:
-
-
-- users
-- roles
-- user_roles
-- clusters
-- namespaces
-- applications
-- alert_rules
-- notification_channels
-- incidents
-- audit_logs
-
-
-#### 11.2 Redis
-
-
-Used for fast temporary data.
-
-Stores:
-
-
-- Session cache
-- Real-time status cache
-- Recent health check results
-- Rate limiting counters
-- Temporary alert deduplication keys
-
-
-#### 11.3 Prometheus TSDB
-
-
-Used for time-series metrics.
-
-Stores:
-
-
-- CPU usage
-- Memory usage
-- Pod restart count
-- HTTP latency
-- Request rate
-- Error rate
-- Node metrics
-- Application metrics
-
-
-#### 11.4 Optional: Loki
-
-
-Add Loki if you want centralized logs.
-
-
-- Pod logs
-- Application logs
-- System logs
-- Ingress logs
-
-
-#### 11.5 Optional: Tempo / Jaeger
-
-
-Add distributed tracing for microservices.
-
-
-- Request traces
-- Service-to-service latency
-- Dependency chain analysis
-
-
-### 12. Connectivity Between Components
-
-
-
-#### 12.1 UI to Backend
-
-
-```text
-Browser UI
-   |
-   | HTTPS REST API / WebSocket
-   v
-Backend API
-```
-The UI should not directly access Kubernetes, Prometheus, or Grafana using admin credentials.
-
-
-#### 12.2 Backend to Kubernetes
-
-
-```text
-Backend API
-   |
-   | Kubernetes Python/Go client
-   v
-Kubernetes API Server
-```
-Use in-cluster authentication:
-
-
-- ServiceAccount
-- ClusterRole
-- ClusterRoleBinding
-
-Permissions should be limited.
-
-Example read-only permissions:
-
-
-- resources:
-- pods
-- services
-- deployments
-- nodes
-- events
-- verbs:
-- get
-- list
-- watch
-
-For admin actions, create a separate role.
-
-
-#### 12.3 Prometheus to Kubernetes
-
-
-```text
-Prometheus
-   |
-   | Scrapes metrics
-   v
-kube-state-metrics / node-exporter / app metrics
-```
-Prometheus does not control Kubernetes. It only collects metrics.
-
-
-#### 12.4 Alertmanager to Notification Channels
-
-
-```text
-Alertmanager
-   |
-   | Webhook
-   v
-Alert Service
-   |
-   | Email / Slack / AI
-   v
-Users
-```
-The custom Alert Service gives you more flexibility than sending directly from Alertmanager.
-
-
-#### 12.5 Grafana to Prometheus
-
-
-```text
-Grafana
-   |
-   | PromQL queries
-   v
-Prometheus
-```
-Grafana is mainly for visualization and dashboards.
-
-
-### 13. Recommended Microservices
-
-
-You can divide the backend into these services.
-
-
-| Service | Responsibility |
-| --- | --- |
-| API Gateway | Main entry point for UI |
-| Auth Service | Login, JWT, LDAP/OIDC integration |
-| Kubernetes Service | Reads Kubernetes objects and events |
-| Metrics Service | Queries Prometheus |
-| Health Checker Service | Checks app and cluster health |
-| Alert Service | Receives alerts and sends notifications |
-| AI Incident Service | Generates alert explanations |
-| Dashboard Service | Sends real-time updates to UI |
-| Audit Service | Stores user actions and system events |
-
-For the first version, you do not need all as separate services. You can start with a modular monolith and split later.
-
-Recommended MVP backend structure:
-
-
-- backend/
-- app/
-- main.py
-- auth/
-- kubernetes/
-- metrics/
-- health/
-- alerts/
-- dashboard/
-- notifications/
-- ai/
-- database/
-
-
-### 14. Deployment Architecture
-
-
-The entire platform should run inside Kubernetes.
-
-
-![Diagram](diagrams/image10.svg)
-
-
-Recommended deployment tools:
-
-
-- Helm charts
-- Argo CD for GitOps
-- Docker images
-- Kubernetes manifests
-
-
-### 15. Security Architecture
-
-
-Security is very important because this platform can access Kubernetes internals.
-
-
-#### 15.1 Authentication
-
-
-Use:
-
-
-- LDAP / OIDC / OAuth2
-- JWT access token
-- Refresh token
-- Session expiration
-
-
-#### 15.2 Authorization
-
-
-Use two levels of RBAC:
-
-
-- Application-level RBAC
-- Kubernetes-level RBAC
-
-Example:
-
-```text
-User has Developer role
-        |
-        v
-Can view only namespace: dev
-        |
-        v
-Backend uses restricted Kubernetes permissions
-```
-
-#### 15.3 Secrets Management
-
-
-Use:
-
-
-- Kubernetes Secrets
-- External Secrets Operator
-- HashiCorp Vault, optional
-- Sealed Secrets, optional
-
-Never store secrets in code or Git.
-
-
-#### 15.4 Audit Logging
-
-
-Every sensitive action should be logged.
-
-Examples:
-
-
-- User restarted pod
-- User scaled deployment
-- User changed alert rule
-- User added Slack webhook
-- User viewed production logs
-
-Audit log fields:
-
-
-- user_id
-- action
-- resource_type
-- resource_name
-- namespace
-- cluster
-- timestamp
-- ip_address
-- result
-
-
-### 16. Suggested MVP Scope
-
-
-For the first working version, build only the core platform.
-
-MVP Features
-
-
-- Login
-- Cluster overview dashboard
-- Namespace list
-- Pod list
-- Deployment list
-- Node health
-- Pod status
-- Basic health checker
-- Prometheus integration
-- Grafana dashboard link/embed
-- Slack/email alerting
-- Real-time dashboard updates
-- Audit logs
-
-Do not start with full AI automation, multi-cluster, tracing, and advanced remediation. Add them later.
-
-
-### 17. MVP Architecture
-
-
-
-![Diagram](diagrams/image12.svg)
-
-
-
-### 18. Development Roadmap
-
-
-Phase 1: Foundation
-
-Build the base project.
-
-Deliverables:
-
-
-- Frontend skeleton
-- Backend API skeleton
-- Docker setup
-- Kubernetes deployment manifests
-- PostgreSQL integration
-- Redis integration
-- Authentication setup
-- Basic UI layout
-
-Phase 2: Kubernetes Integration
-
-Add Kubernetes object visibility.
-
-Deliverables:
-
-
-- Connect backend to Kubernetes API
-- Show nodes
-- Show namespaces
-- Show pods
-- Show deployments
-- Show pod status
-- Show Kubernetes events
-- Add namespace filtering
-- Add cluster summary cards
-
-Example dashboard cards:
-
-
-- Total Nodes: 5
-- Healthy Nodes: 4
-- Running Pods: 132
-- Failed Pods: 3
-- Active Alerts: 7
-- CPU Usage: 64%
-- Memory Usage: 71%
-
-Phase 3: Prometheus and Grafana
-
-Add monitoring.
-
-Deliverables:
-
-
-- Install Prometheus
-- Install kube-state-metrics
-- Install node-exporter
-- Install Grafana
-- Create base dashboards
-- Expose Prometheus query API through backend
-- Show CPU/memory charts in UI
-
-Phase 4: Health Checker
-
-Add custom health checking.
-
-Deliverables:
-
-
-- Create Health Checker service
-- Check application endpoints
-- Check pod restart count
-- Check deployment availability
-- Check service endpoint availability
-- Store health result in Redis/PostgreSQL
-- Show health status in dashboard
-
-Health result model:
-
+* **Purpose**: Maps ports `80` (HTTP) and `443` (HTTPS) from the physical laptop directly into the Kind control plane node container.
+* **Significance**: NGINX Ingress binds to port `80`/`443` internally. This configuration maps the host requests (`http://localhost`) directly to the Ingress controller without needing complex node-port rules or tunnel forwarders.
+
+---
+
+## 6. Backend Service Deep Dive
+
+### `backend/app/main.py`
+The FastAPI backend acts as the unified middleware layer. It exposes endpoints that fetch live cluster statistics and exposes a target webhook for Alertmanager events.
+
+| Endpoint | Method | Purpose |
+| :--- | :--- | :--- |
+| `/health` | `GET` | Return API service health. Used as Kubernetes liveness/readiness probe. |
+| `/api/cluster/summary` | `GET` | Aggregated status count (Pods, Nodes, Deployments, Alert counts). |
+| `/api/cluster/nodes` | `GET` | List status, CPU capacity, memory sizes, and OS versions for all nodes. |
+| `/api/cluster/pods` | `GET` | List pods, restart counters, current statuses, and host nodes. |
+| `/api/cluster/deployments`| `GET` | Fetch desired vs ready replicas; reports degraded states. |
+| `/api/cluster/events` | `GET` | Stream recent events occurring within the Kubernetes namespace. |
+| `/api/alerts/webhook` | `POST` | Receive webhook alert payloads from Alertmanager. |
+
+#### Alert Webhook API Example
+Receives HTTP POST payloads from Alertmanager:
 ```json
 {
-  "service": "payment-service",
-  "namespace": "production",
-  "status": "degraded",
-  "reason": "2 of 3 replicas available",
-  "lastCheckedAt": "2026-05-31T10:30:00Z"
+  "status": "firing",
+  "alerts": [
+    {
+      "labels": {
+        "alertname": "PodCrashLooping",
+        "severity": "critical",
+        "pod": "payment-api-74df-2w"
+      },
+      "annotations": {
+        "summary": "Pod is looping in crash cycles"
+      }
+    }
+  ]
 }
 ```
-Phase 5: Alerting
 
-Add alert rules and notifications.
+---
 
-Deliverables:
+### `backend/app/k8s_client.py`
+This module encapsulates the interactions with the core Kubernetes API using the official `kubernetes` SDK.
 
+#### Client Authentication Flow
+To support both local workstation testing and in-cluster deployment, the client dynamically loads credentials:
+```python
+from kubernetes import client, config
 
-- Configure Alertmanager
-- Create Prometheus alert rules
-- Build Alert Service webhook
-- Add Slack notification
-- Add email notification
-- Show active alerts in UI
-- Store alert history
+try:
+    # 1. Attempt to load service account credentials mounted inside the pod
+    config.load_in_cluster_config()
+except config.ConfigException:
+    # 2. Fallback to local user Kubeconfig file (~/.kube/config) during development
+    config.load_kube_config()
 
-Phase 6: Real-Time Dashboard
+core_v1 = client.CoreV1Api()
+apps_v1 = client.AppsV1Api()
+```
 
-Add live updates.
+#### Metrics & Query Methods
+* `get_summary()`: Combines workload counts.
+  ```json
+  {
+    "nodes": { "total": 1, "ready": 1 },
+    "pods": { "total": 12, "running": 10, "failed": 1, "pending": 1 },
+    "deployments": { "total": 4, "healthy": 3, "degraded": 1 }
+  }
+  ```
+* `get_nodes()`: Compiles node details (Status, CPU cores, Memory allocations, Kubelet versions).
+* `get_pods()`: Queries pods across all namespaces to monitor statuses and count container restarts.
+* `get_deployments()`: Validates replica sets. If `ready_replicas` < `spec_replicas`, the status is flagged as **`Degraded`**, otherwise **`Healthy`**.
+* `get_events()`: Retreives the latest namespace warning and info events to assist in troubleshooting.
 
-Deliverables:
+---
 
+### `backend/app/alerts.py`
+Alerts are stored in-memory in a clean data structure:
+```python
+active_alerts = {}  # Keyed by Alert Fingerprint
+alert_history = []  # Running log of past alerts
+```
+- **Firing Alerts**: Captured and logged inside `active_alerts`.
+- **Resolved Alerts**: Removed from `active_alerts` and appended to `alert_history` with a timestamp offset, updating the dashboard in real-time.
 
-- WebSocket backend
-- Kubernetes watch integration
-- Live pod status updates
-- Live alert updates
-- Live health status updates
-- Frontend real-time refresh
+---
 
-Phase 7: AI Incident Assistant
+## 7. Frontend Dashboard
 
-Add intelligent alert explanation.
+### `frontend/app.py`
+The frontend is written in **Streamlit**, providing a clean, reactive layout to view cluster health indicators.
 
-Deliverables:
+### Dashboard Sections
+1. **Cluster Summary Metric Cards**: Key status indicators showing active workloads and current issues.
+2. **Alerts Panel**: Highlight critical active warnings forwarded from Alertmanager.
+3. **Deployments Table**: Real-time status mapping showing container counts and replica drifts.
+4. **Nodes Monitor**: Displays node compute configurations, system versions, and readiness states.
+5. **Pods Status Grid**: Shows pod status, host node, restarts, and container phase.
+6. **Kubernetes Events Log**: Displays warning messages and system transitions chronologically.
 
+---
 
-- Send alert data to AI service
-- Include logs/events/metrics context
-- Generate incident summary
-- Generate likely cause
-- Generate suggested fix
-- Send enriched message to Slack/email
-- Show AI summary in dashboard
+## 8. Kubernetes Manifests & Security
 
-Phase 8: Production Hardening
+### `k8s/namespace.yaml`
+Establishes the resource boundary `kubepulse` to prevent resource collisions with other system processes:
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubepulse
+```
 
-Prepare for real usage.
+### `k8s/rbac.yaml` (Role-Based Access Control)
+Secures backend workloads by applying the principle of least privilege.
 
-Deliverables:
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubepulse-backend
+  namespace: kubepulse
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubepulse-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods", "nodes", "events", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubepulse-backend-binding
+subjects:
+- kind: ServiceAccount
+  name: kubepulse-backend
+  namespace: kubepulse
+roleRef:
+  kind: ClusterRole
+  name: kubepulse-reader
+  apiGroup: rbac.authorization.k8s.io
+```
 
+* **ServiceAccount**: Identifies the API backend execution context.
+* **ClusterRole**: Grants read-only access (`get`, `list`, `watch`) to vital cluster components (pods, nodes, events, services, deployments). It does **not** grant write or delete access.
+* **ClusterRoleBinding**: Binds the role to the service account, authorizing the API container to fetch cluster stats.
 
-- TLS everywhere
-- RBAC hardening
-- Network policies
-- Rate limiting
-- Audit logging
-- Backup strategy
-- High availability setup
-- Resource requests/limits
-- Helm chart
-- Argo CD deployment
-- Monitoring for the monitoring system itself
+---
 
+## 9. Workload Deployments
 
-### 19. Final Recommended Tech Stack
+### `k8s/backend.yaml`
+Deploys the FastAPI server.
+* **Port**: Exposes port `8000`.
+* **Resource Allocations**:
+  ```yaml
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+  ```
+  Prevents memory leaks or cpu exhaustion from affecting other workloads.
+* **Liveness & Readiness Probes**:
+  ```yaml
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  ```
+  Ensures traffic is only routed to the container once it's fully ready, and restarts the container automatically if it becomes unresponsive.
 
+### `k8s/frontend.yaml`
+Deploys the Streamlit UI.
+* **Port**: Exposes the container on port `8501`.
+* **Service**: Exposes the container internally for ingress routing.
 
+---
 
-| Layer | Recommended Tool |
-| --- | --- |
-| Kubernetes | RKE2 |
-| Frontend | React / Next.js |
-| Backend | FastAPI |
-| Auth | LDAP + JWT, later OIDC |
-| Database | PostgreSQL |
-| Cache | Redis |
-| Metrics | Prometheus |
-| Visualization | Grafana |
-| Alerts | Alertmanager |
-| Notifications | Slack, Email |
-| Logs | Loki, optional |
-| Tracing | Tempo or Jaeger, optional |
-| Deployment | Helm |
-| GitOps | Argo CD |
-| AI Layer | LLM-based incident summarizer |
+## 10. Ingress & Traffic Routing
 
+### `k8s/ingress.yaml`
+The Ingress manifest configures NGINX to route external host traffic to the correct internal service based on the URL path.
 
-### 20. Suggested Final System Name
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubepulse-ingress
+  namespace: kubepulse
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kubepulse-frontend
+            port:
+              number: 8501
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: kubepulse-backend
+            port:
+              number: 8000
+      - path: /prometheus
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus
+            port:
+              number: 9090
+      - path: /grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 3000
+```
 
+---
 
-You can name the project something like:
+## 11. Monitoring Stack
 
-KubePulse
+### `k8s/monitoring/prometheus.yaml`
+Deploys Prometheus to scrape time-series metrics from nodes and containers.
+* **Scraper Configs**:
+  1. `kubernetes-apiservers`: Monitors API server latency and loads.
+  2. `kubernetes-nodes`: Gathers operating system usage metrics (CPU, Memory, Disk, Network) from each node.
+  3. `kubernetes-cadvisor`: Fetches system usage metrics for every container running on the node.
 
-or
+### `k8s/monitoring/grafana.yaml`
+Deploys Grafana for metric visualization.
+* **Automated Data Sources**: Uses a ConfigMap to pre-configure connection settings for Prometheus and Alertmanager data sources automatically on start.
+* **Default Dashboard Provisioning**: Automatically loads a default cluster monitoring dashboard JSON file from a ConfigMap, ensuring dashboards are populated immediately at `http://localhost/grafana` without manual configuration.
 
-RKE2 Sentinel
+### `k8s/monitoring/alertmanager.yaml`
+Alertmanager processes alert signals from Prometheus and routes them to alert endpoints.
+* **Receivers**: A webhook receiver routes alerts directly to the FastAPI API backend at `/api/alerts/webhook`, allowing the dashboard to display critical alerts instantly.
 
-or
+---
 
-ClusterWatch
+## 12. Docker Containers
 
-My recommendation: KubePulse.
+KubePulse uses containerized execution environments to ensure consistent behavior across environments:
 
-It sounds like a system that continuously checks the “pulse” of your Kubernetes cluster and applications.
+1. **Backend Container**:
+   * Runs Python 3.12-slim.
+   * Exposes port `8000`.
+   * Executable: `uvicorn app.main:app`.
+2. **Frontend Container**:
+   * Runs Streamlit.
+   * Exposes port `8501` (mapped to `80` by Ingress).
 
+---
+
+## 13. Deployment & Verification Workflow
+
+Follow these steps to deploy KubePulse to a local Kind cluster:
+
+### Step 1: Create the Kind Cluster
+Use the Kind configuration file to create the cluster with port mappings:
+```powershell
+kind create cluster --config kind-config.yaml --name kubepulse
+```
+
+### Step 2: Deploy the Ingress Controller
+Apply the NGINX Ingress Controller manifest and wait for it to become ready:
+```powershell
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+
+# Wait for Ingress pods to be running
+kubectl wait --namespace ingress-nginx `
+  --for=condition=ready pod `
+  --selector=app.kubernetes.io/component=controller `
+  --timeout=120s
+```
+
+### Step 3: Create the Namespace & RBAC Roles
+```powershell
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/rbac.yaml
+```
+
+### Step 4: Build and Load Docker Images
+Build images locally and load them directly into the Kind cluster nodes (eliminating the need for an external container registry):
+```powershell
+# Build Backend
+docker build -t kubepulse-backend:latest ./backend
+kind load docker-image kubepulse-backend:latest --name kubepulse
+
+# Build Frontend
+docker build -t kubepulse-frontend:latest ./frontend
+kind load docker-image kubepulse-frontend:latest --name kubepulse
+```
+
+### Step 5: Deploy the Workloads
+Deploy backend, frontend, and database services:
+```powershell
+kubectl apply -f k8s/backend.yaml
+kubectl apply -f k8s/frontend.yaml
+```
+
+### Step 6: Deploy the Monitoring Stack
+Apply Prometheus, Grafana, and Alertmanager configurations:
+```powershell
+kubectl apply -f k8s/monitoring/prometheus.yaml
+kubectl apply -f k8s/monitoring/grafana.yaml
+kubectl apply -f k8s/monitoring/alertmanager.yaml
+```
+
+### Step 7: Apply Ingress Routes
+Activate external HTTP access pathways:
+```powershell
+kubectl apply -f k8s/ingress.yaml
+```
+
+### Step 8: Verify the Deployment
+Verify that the services are accessible:
+
+* **Dashboard**: `http://localhost/` (Streamlit UI loads)
+* **Backend API**: `http://localhost/api/cluster/summary` (returns JSON status output)
+* **Grafana**: `http://localhost/grafana` (access Grafana dashboards)
+* **Prometheus**: `http://localhost/prometheus` (view metrics targets and run queries)
+
+---
+
+## 14. DevOps Concepts Demonstrated
+
+This project showcases a wide range of production-grade Cloud-Native and DevOps practices:
+
+* **Local Kubernetes Clusters**: Kind orchestration with multi-container nodes.
+* **In-Cluster & Local Client Auth**: Dynamic Kubeconfig resolution.
+* **Traffic Routing**: NGINX Ingress path-based routing.
+* **Kubernetes RBAC**: ClusterRoles, ClusterRoleBindings, and ServiceAccounts.
+* **Health and Healing**: Readiness and liveness probes.
+* **Monitoring as Code**: Auto-provisioned Grafana datasources, Grafana dashboards, and Alertmanager hooks.
+* **Containerization**: Optimized Docker builds.
+* **Alerting Pipelines**: Prometheus metrics alerting routed to webhook receivers.
