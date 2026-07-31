@@ -1750,27 +1750,6 @@ kubectl apply -f k8s/ingress.yaml
 
 ---
 
-## 7. Crucial Fixes Explained
-
-### Fix 1: Prometheus Metrics Scraping Permission (ClusterRole)
-Initially, Prometheus target scrapers failed with a `403 Forbidden` error because the ClusterRole lacked nodes proxy credentials. We added `"nodes/proxy"` to the ClusterRole resource permission inside [prometheus.yaml](file:///f:/Capstone%20projects/Kubernetes%20monitoring%20and%20Health%20checker/k8s/monitoring/prometheus.yaml):
-```yaml
-- apiGroups: [""]
-  resources: ["nodes", "nodes/metrics", "nodes/proxy", "services", "endpoints", "pods"]
-  verbs: ["get", "list", "watch"]
-```
-
-### Fix 2: Grafana Datasource URL Route Path
-Because Prometheus is served under Ingress subpath `/prometheus`, the internal API route changed to include `/prometheus/`. We updated Grafana's datasource url in [grafana.yaml](file:///f:/Capstone%20projects/Kubernetes%20monitoring%20and%20Health%20checker/k8s/monitoring/grafana.yaml) to point to the correct subpath suffix:
-```yaml
-url: http://prometheus.kubepulse.svc.cluster.local:9090/prometheus
-```
-
-### Fix 3: Flattened Streamlit Buttons (React error #185)
-Nesting columns layout (columns inside columns) in Streamlit triggers an infinite layout recalculation loop in the frontend React engine, crashing with React error `#185`. We flattened the layout in [app.py](file:///f:/Capstone%20projects/Kubernetes%20monitoring%20and%20Health%20checker/frontend/app.py) using a flat list of 4 columns `[2.5, 1.5, 1.5, 2.5]` to render centered buttons safely.
-
----
-
 ## 8. Verification and Testing
 
 ### 1. Test Ingress and Dashboard
